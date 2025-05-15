@@ -20,8 +20,9 @@ import ArrowBackIcon from '@mui/icons-material/ArrowBack';
 import FavoriteIcon from '@mui/icons-material/Favorite';
 import EmojiEventsIcon from '@mui/icons-material/EmojiEvents';
 import UploadFileIcon from '@mui/icons-material/UploadFile';
-import { getMessagesByDate } from '../services/messageService';
+import { getMessagesByDate, markMessageAsViewed } from '../services/messageService';
 import { getChallengesByDate, submitChallengeResponse } from '../services/challengeService';
+import { isUnlocked, formatDateForDisplay } from '../utils/dateUtils';
 
 function DayView() {
   const { date } = useParams();
@@ -35,44 +36,56 @@ function DayView() {
   const [submitted, setSubmitted] = useState(false);
   const [previewUrl, setPreviewUrl] = useState('');
   const [activeChallenge, setActiveChallenge] = useState(null);
+  const [markedAsViewed, setMarkedAsViewed] = useState([]);
   
-  const formattedDate = date ? format(parseISO(date), 'MMMM d, yyyy') : '';
+  const formattedDate = date ? formatDateForDisplay(parseISO(date)) : '';
+  const parsedDate = date ? parseISO(date) : null;
 
+  // Updated useEffect in DayView.js
   useEffect(() => {
-    const fetchData = async () => {
-      try {
-        if (!date) return;
-        
-        const parsedDate = parseISO(date);
-        const [fetchedMessages, fetchedChallenges] = await Promise.all([
-          getMessagesByDate(parsedDate),
-          getChallengesByDate(parsedDate)
-        ]);
-        
-        setMessages(fetchedMessages);
-        setChallenges(fetchedChallenges);
-        
-        // If there are challenges, set the first one as active
-        if (fetchedChallenges.length > 0) {
-          setActiveChallenge(fetchedChallenges[0].id);
-        }
-        
-        // Check if user has already submitted responses to any challenges
-        if (fetchedChallenges.length > 0) {
-          const anyResponses = fetchedChallenges.some(challenge => 
-            challenge.responses && Object.values(challenge.responses).length > 0
-          );
-          setSubmitted(anyResponses);
-        }
-      } catch (error) {
-        console.error("Error fetching day data:", error);
-      } finally {
-        setLoading(false);
+    const trackMessageViews = async () => {
+      if (messages.length === 0 || loading) return;
+      
+      // Get message IDs we haven't tracked yet
+      const unviewedMessages = messages.filter(
+        message => !markedAsViewed.includes(message.id)
+      );
+      
+      if (unviewedMessages.length === 0) return;
+      
+      // Track each unviewed message
+      const newlyViewedIds = [];
+      for (const message of unviewedMessages) {
+        await markMessageAsViewed(message.id);
+        newlyViewedIds.push(message.id);
+      }
+      
+      // Update marked as viewed state once
+      if (newlyViewedIds.length > 0) {
+        setMarkedAsViewed(prev => [...prev, ...newlyViewedIds]);
       }
     };
+    
+    trackMessageViews();
+    // Only run when messages or loading state changes, not when markedAsViewed changes
+  }, [messages, loading]);
 
-    fetchData();
-  }, [date]);
+  // Track message views
+  useEffect(() => {
+    const trackMessageViews = async () => {
+      if (messages.length === 0 || loading) return;
+      
+      // Mark each message as viewed
+      for (const message of messages) {
+        if (!markedAsViewed.includes(message.id)) {
+          await markMessageAsViewed(message.id);
+          setMarkedAsViewed(prev => [...prev, message.id]);
+        }
+      }
+    };
+    
+    trackMessageViews();
+  }, [messages, loading, markedAsViewed]);
 
   const handleFileChange = (event) => {
     const file = event.target.files[0];
@@ -100,7 +113,7 @@ function DayView() {
       setPreviewUrl('');
       
       // Refresh challenge data to show the response
-      const refreshedChallenges = await getChallengesByDate(parseISO(date));
+      const refreshedChallenges = await getChallengesByDate(parsedDate);
       setChallenges(refreshedChallenges);
     } catch (error) {
       console.error("Error submitting response:", error);
