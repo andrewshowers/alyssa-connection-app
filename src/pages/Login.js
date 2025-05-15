@@ -39,7 +39,7 @@ function Login() {
         }}
       >
         <Typography variant="h4" component="h1" gutterBottom sx={{ color: '#590d22' }}>
-          Love Connection
+          Connection Connection
         </Typography>
         
         <Typography variant="body1" align="center" sx={{ mb: 4, color: '#590d22' }}>

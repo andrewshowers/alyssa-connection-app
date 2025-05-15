@@ -63,6 +63,22 @@ function PrivateRoute({ children }) {
   return isAuthenticated ? children : <Navigate to="/" />;
 }
 
+// Add this function near your existing PrivateRoute function
+function AdminRoute({ children }) {
+  const { currentUser, loading } = useAuth();
+  
+  if (loading) {
+    return <div>Loading...</div>;
+  }
+  
+  // Check if user is admin (either of your email addresses)
+  const isAdmin = currentUser && 
+    (currentUser.email === "andrewjshowers@gmail.com" || 
+     currentUser.email === "showersa@mail.gvsu.edu");
+  
+  return isAdmin ? children : <Navigate to="/calendar" />;
+}
+
 function App() {
   return (
     <ThemeProvider theme={theme}>
@@ -90,9 +106,9 @@ function App() {
             <Route 
               path="/admin" 
               element={
-                <PrivateRoute>
+                <AdminRoute>
                   <Admin />
-                </PrivateRoute>
+                </AdminRoute>
               } 
             />
             <Route path="*" element={<Navigate to="/" replace />} />

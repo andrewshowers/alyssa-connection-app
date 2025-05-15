@@ -1,16 +1,41 @@
+// firestore.rules
+rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
-    match /{document=**} {
-      // This rule allows anyone with your database reference to view, edit,
-      // and delete all data in your database. It is useful for getting
-      // started, but it is configured to expire after 30 days because it
-      // leaves your app open to attackers. At that time, all client
-      // requests to your database will be denied.
-      //
-      // Make sure to write security rules for your app before that time, or
-      // else all client requests to your database will be denied until you
-      // update your rules.
-      allow read, write: if request.time < timestamp.date(2025, 6, 12);
+    // Allow read access if the user is authenticated and has one of the authorized emails
+    function isAuthorizedUser() {
+      return request.auth != null && 
+        (request.auth.token.email == "andrewjshowers@gmail.com" || 
+         request.auth.token.email == "showersa@mail.gvsu.edu" ||
+	 request.auth.token.email == "andyshow24@gmail.com" ||
+         request.auth.token.email == "alyssahoekstra04@gmail.com");
+    }
+    
+    // Function to check if user is admin (just you)
+    function isAdmin() {
+      return request.auth != null && 
+             (request.auth.token.email == "andrewjshowers@gmail.com" || 
+              request.auth.token.email == "showersa@mail.gvsu.edu");
+    }
+    
+    // Messages collection - only admin can write, both can read
+    match /messages/{messageId} {
+      allow read: if isAuthorizedUser();
+      allow write: if isAdmin();
+    }
+    
+    // Challenges collection - only admin can create/update challenges
+    match /challenges/{challengeId} {
+      // Allow read for both users
+      allow read: if isAuthorizedUser();
+      
+      // Only admin can create challenges
+      allow create, update: if isAdmin();
+      
+      // Allow users to update only their own responses
+      allow update: if isAuthorizedUser() && 
+                    request.resource.data.keys().hasOnly(resource.data.keys()) &&
+                    request.resource.data.diff(resource.data).affectedKeys().hasOnly(['responses']);
     }
   }
 }

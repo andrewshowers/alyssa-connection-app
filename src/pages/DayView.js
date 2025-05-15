@@ -20,20 +20,21 @@ import ArrowBackIcon from '@mui/icons-material/ArrowBack';
 import FavoriteIcon from '@mui/icons-material/Favorite';
 import EmojiEventsIcon from '@mui/icons-material/EmojiEvents';
 import UploadFileIcon from '@mui/icons-material/UploadFile';
-import { getMessageByDate } from '../services/messageService';
-import { getChallengeByDate, submitChallengeResponse } from '../services/challengeService';
+import { getMessagesByDate } from '../services/messageService';
+import { getChallengesByDate, submitChallengeResponse } from '../services/challengeService';
 
 function DayView() {
   const { date } = useParams();
   const navigate = useNavigate();
-  const [message, setMessage] = useState(null);
-  const [challenge, setChallenge] = useState(null);
+  const [messages, setMessages] = useState([]);
+  const [challenges, setChallenges] = useState([]);
   const [loading, setLoading] = useState(true);
   const [responseText, setResponseText] = useState('');
   const [responseFile, setResponseFile] = useState(null);
   const [submitting, setSubmitting] = useState(false);
   const [submitted, setSubmitted] = useState(false);
   const [previewUrl, setPreviewUrl] = useState('');
+  const [activeChallenge, setActiveChallenge] = useState(null);
   
   const formattedDate = date ? format(parseISO(date), 'MMMM d, yyyy') : '';
 
@@ -43,20 +44,25 @@ function DayView() {
         if (!date) return;
         
         const parsedDate = parseISO(date);
-        const [fetchedMessage, fetchedChallenge] = await Promise.all([
-          getMessageByDate(parsedDate),
-          getChallengeByDate(parsedDate)
+        const [fetchedMessages, fetchedChallenges] = await Promise.all([
+          getMessagesByDate(parsedDate),
+          getChallengesByDate(parsedDate)
         ]);
         
-        setMessage(fetchedMessage);
-        setChallenge(fetchedChallenge);
+        setMessages(fetchedMessages);
+        setChallenges(fetchedChallenges);
         
-        // Check if user has already submitted a response to the challenge
-        if (fetchedChallenge && fetchedChallenge.responses) {
-          const userResponses = Object.values(fetchedChallenge.responses);
-          if (userResponses.length > 0) {
-            setSubmitted(true);
-          }
+        // If there are challenges, set the first one as active
+        if (fetchedChallenges.length > 0) {
+          setActiveChallenge(fetchedChallenges[0].id);
+        }
+        
+        // Check if user has already submitted responses to any challenges
+        if (fetchedChallenges.length > 0) {
+          const anyResponses = fetchedChallenges.some(challenge => 
+            challenge.responses && Object.values(challenge.responses).length > 0
+          );
+          setSubmitted(anyResponses);
         }
       } catch (error) {
         console.error("Error fetching day data:", error);
@@ -82,20 +88,20 @@ function DayView() {
     }
   };
 
-  const handleSubmitResponse = async () => {
-    if (!challenge || (!responseText && !responseFile)) return;
+  const handleSubmitResponse = async (challengeId) => {
+    if (!challengeId || (!responseText && !responseFile)) return;
     
     setSubmitting(true);
     try {
-      await submitChallengeResponse(challenge.id, responseText, responseFile);
+      await submitChallengeResponse(challengeId, responseText, responseFile);
       setSubmitted(true);
       setResponseText('');
       setResponseFile(null);
       setPreviewUrl('');
       
       // Refresh challenge data to show the response
-      const refreshedChallenge = await getChallengeByDate(parseISO(date));
-      setChallenge(refreshedChallenge);
+      const refreshedChallenges = await getChallengesByDate(parseISO(date));
+      setChallenges(refreshedChallenges);
     } catch (error) {
       console.error("Error submitting response:", error);
     } finally {
@@ -103,7 +109,7 @@ function DayView() {
     }
   };
 
-  const getMessageContent = () => {
+  const renderMessageContent = (message) => {
     if (!message) return null;
     
     switch (message.type) {
@@ -163,7 +169,7 @@ function DayView() {
     }
   };
 
-  const getChallengeResponses = () => {
+  const getChallengeResponses = (challenge) => {
     if (!challenge || !challenge.responses) return null;
     
     const responses = Object.values(challenge.responses);
@@ -231,117 +237,129 @@ function DayView() {
         </Box>
       ) : (
         <>
-          {message && (
-            <Paper 
-              elevation={3} 
-              sx={{ 
-                p: 3, 
-                mb: 4, 
-                borderRadius: 2,
-                backgroundImage: 'linear-gradient(to bottom right, #ffccd5, #ffc8dd)',
-              }}
-            >
-              <Box sx={{ display: 'flex', alignItems: 'center', mb: 2 }}>
-                <FavoriteIcon sx={{ mr: 1, color: '#ff4d6d' }} />
-                <Typography variant="h6">Daily Love Note</Typography>
-              </Box>
-              <Divider sx={{ mb: 2 }} />
-              {getMessageContent()}
-            </Paper>
-          )}
-
-          {challenge && (
-            <Paper 
-              elevation={3} 
-              sx={{ 
-                p: 3, 
-                mb: 4, 
-                borderRadius: 2,
-                backgroundColor: '#fff0f3'
-              }}
-            >
-              <Box sx={{ display: 'flex', alignItems: 'center', mb: 2 }}>
-                <EmojiEventsIcon sx={{ mr: 1, color: '#ff9e6d' }} />
-                <Typography variant="h6">Daily Challenge</Typography>
-              </Box>
-              <Divider sx={{ mb: 2 }} />
-              
-              <Typography variant="body1" sx={{ mb: 3 }}>
-                {challenge.prompt}
-              </Typography>
-              
-              {!submitted ? (
-                <Box sx={{ mt: 2 }}>
-                  <TextField
-                    fullWidth
-                    multiline
-                    rows={3}
-                    variant="outlined"
-                    placeholder="Your response..."
-                    value={responseText}
-                    onChange={(e) => setResponseText(e.target.value)}
-                    sx={{ mb: 2 }}
-                  />
-                  
-                  <Box sx={{ display: 'flex', alignItems: 'center', mb: 2 }}>
-                    <Button
-                      component="label"
-                      variant="outlined"
-                      startIcon={<UploadFileIcon />}
-                      sx={{ mr: 2 }}
-                    >
-                      Add Photo
-                      <input
-                        type="file"
-                        accept="image/*"
-                        hidden
-                        onChange={handleFileChange}
-                      />
-                    </Button>
-                    
-                    {responseFile && (
-                      <Typography variant="body2" color="text.secondary">
-                        {responseFile.name}
-                      </Typography>
-                    )}
-                  </Box>
-                  
-                  {previewUrl && (
-                    <Box sx={{ mb: 2 }}>
-                      <img 
-                        src={previewUrl} 
-                        alt="Preview" 
-                        style={{ 
-                          maxWidth: '100%', 
-                          maxHeight: '200px', 
-                          objectFit: 'contain' 
-                        }} 
-                      />
-                    </Box>
-                  )}
-                  
-                  <Button
-                    variant="contained"
-                    color="primary"
-                    onClick={handleSubmitResponse}
-                    disabled={submitting || (!responseText && !responseFile)}
-                    sx={{ 
-                      bgcolor: '#ff758f', 
-                      '&:hover': { 
-                        bgcolor: '#ff4d6d' 
-                      } 
-                    }}
-                  >
-                    {submitting ? <CircularProgress size={24} /> : 'Submit Response'}
-                  </Button>
+          {/* Display all messages */}
+          {messages.length > 0 ? (
+            messages.map((message, index) => (
+              <Paper 
+                key={`message-${index}`}
+                elevation={3} 
+                sx={{ 
+                  p: 3, 
+                  mb: 4, 
+                  borderRadius: 2,
+                  backgroundImage: 'linear-gradient(to bottom right, #ffccd5, #ffc8dd)',
+                }}
+              >
+                <Box sx={{ display: 'flex', alignItems: 'center', mb: 2 }}>
+                  <FavoriteIcon sx={{ mr: 1, color: '#ff4d6d' }} />
+                  <Typography variant="h6">
+                    Daily Note {messages.length > 1 ? `#${index + 1}` : ''}
+                  </Typography>
                 </Box>
-              ) : (
-                getChallengeResponses()
-              )}
-            </Paper>
-          )}
+                <Divider sx={{ mb: 2 }} />
+                {renderMessageContent(message)}
+              </Paper>
+            ))
+          ) : null}
+
+          {/* Display all challenges */}
+          {challenges.length > 0 ? (
+            challenges.map((challenge, index) => (
+              <Paper 
+                key={`challenge-${index}`}
+                elevation={3} 
+                sx={{ 
+                  p: 3, 
+                  mb: 4, 
+                  borderRadius: 2,
+                  backgroundColor: '#fff0f3'
+                }}
+              >
+                <Box sx={{ display: 'flex', alignItems: 'center', mb: 2 }}>
+                  <EmojiEventsIcon sx={{ mr: 1, color: '#ff9e6d' }} />
+                  <Typography variant="h6">
+                    Daily Challenge {challenges.length > 1 ? `#${index + 1}` : ''}
+                  </Typography>
+                </Box>
+                <Divider sx={{ mb: 2 }} />
+                
+                <Typography variant="body1" sx={{ mb: 3 }}>
+                  {challenge.prompt}
+                </Typography>
+                
+                {!submitted ? (
+                  <Box sx={{ mt: 2 }}>
+                    <TextField
+                      fullWidth
+                      multiline
+                      rows={3}
+                      variant="outlined"
+                      placeholder="Your response..."
+                      value={responseText}
+                      onChange={(e) => setResponseText(e.target.value)}
+                      sx={{ mb: 2 }}
+                    />
+                    
+                    <Box sx={{ display: 'flex', alignItems: 'center', mb: 2 }}>
+                      <Button
+                        component="label"
+                        variant="outlined"
+                        startIcon={<UploadFileIcon />}
+                        sx={{ mr: 2 }}
+                      >
+                        Add Photo
+                        <input
+                          type="file"
+                          accept="image/*"
+                          hidden
+                          onChange={handleFileChange}
+                        />
+                      </Button>
+                      
+                      {responseFile && (
+                        <Typography variant="body2" color="text.secondary">
+                          {responseFile.name}
+                        </Typography>
+                      )}
+                    </Box>
+                    
+                    {previewUrl && (
+                      <Box sx={{ mb: 2 }}>
+                        <img 
+                          src={previewUrl} 
+                          alt="Preview" 
+                          style={{ 
+                            maxWidth: '100%', 
+                            maxHeight: '200px', 
+                            objectFit: 'contain' 
+                          }} 
+                        />
+                      </Box>
+                    )}
+                    
+                    <Button
+                      variant="contained"
+                      color="primary"
+                      onClick={() => handleSubmitResponse(challenge.id)}
+                      disabled={submitting || (!responseText && !responseFile)}
+                      sx={{ 
+                        bgcolor: '#ff758f', 
+                        '&:hover': { 
+                          bgcolor: '#ff4d6d' 
+                        } 
+                      }}
+                    >
+                      {submitting ? <CircularProgress size={24} /> : 'Submit Response'}
+                    </Button>
+                  </Box>
+                ) : (
+                  getChallengeResponses(challenge)
+                )}
+              </Paper>
+            ))
+          ) : null}
           
-          {!message && !challenge && (
+          {messages.length === 0 && challenges.length === 0 && (
             <Paper 
               elevation={3} 
               sx={{ 

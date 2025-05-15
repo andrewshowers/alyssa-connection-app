@@ -31,8 +31,8 @@ export const getAllMessages = async () => {
   }
 };
 
-// Get a specific message by date
-export const getMessageByDate = async (date) => {
+// Get messages for a specific date
+export const getMessagesByDate = async (date) => {
   try {
     const formattedDate = new Date(date);
     formattedDate.setHours(0, 0, 0, 0);
@@ -45,25 +45,31 @@ export const getMessageByDate = async (date) => {
     const q = query(
       messagesRef, 
       where("date", ">=", startOfDay),
-      where("date", "<=", endOfDay)
+      where("date", "<=", endOfDay),
+      orderBy("date", "asc")
     );
     
     const querySnapshot = await getDocs(q);
     
     if (querySnapshot.empty) {
-      return null;
+      return [];
     }
     
-    const doc = querySnapshot.docs[0];
-    return {
+    return querySnapshot.docs.map(doc => ({
       id: doc.id,
       ...doc.data(),
       date: doc.data().date.toDate()
-    };
+    }));
   } catch (error) {
-    console.error("Error getting message by date: ", error);
+    console.error("Error getting messages by date: ", error);
     throw error;
   }
+};
+
+// Keep the original function for backward compatibility
+export const getMessageByDate = async (date) => {
+  const messages = await getMessagesByDate(date);
+  return messages.length > 0 ? messages[0] : null;
 };
 
 // Upload a file to storage and get URL
@@ -83,7 +89,8 @@ export const uploadFile = async (file, path) => {
 export const createMessage = async (messageData, files = {}) => {
   try {
     const { text, date, type } = messageData;
-    const messageId = `message_${date.toISOString().split('T')[0]}`;
+    // Generate a unique ID with date and timestamp
+    const messageId = `message_${date.toISOString().split('T')[0]}_${Date.now()}`;
     const messageRef = doc(db, "messages", messageId);
     
     // Upload files if they exist

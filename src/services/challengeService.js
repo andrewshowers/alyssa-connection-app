@@ -15,8 +15,8 @@ import { ref, uploadBytes, getDownloadURL } from "firebase/storage";
 import { db, storage } from "../config/firebase";
 import { getCurrentUser } from "./authService";
 
-// Get challenge for a specific date
-export const getChallengeByDate = async (date) => {
+// Get challenges for a specific date (multiple)
+export const getChallengesByDate = async (date) => {
   try {
     const formattedDate = new Date(date);
     formattedDate.setHours(0, 0, 0, 0);
@@ -29,25 +29,31 @@ export const getChallengeByDate = async (date) => {
     const q = query(
       challengesRef, 
       where("date", ">=", startOfDay),
-      where("date", "<=", endOfDay)
+      where("date", "<=", endOfDay),
+      orderBy("date", "asc")
     );
     
     const querySnapshot = await getDocs(q);
     
     if (querySnapshot.empty) {
-      return null;
+      return [];
     }
     
-    const doc = querySnapshot.docs[0];
-    return {
+    return querySnapshot.docs.map(doc => ({
       id: doc.id,
       ...doc.data(),
       date: doc.data().date.toDate()
-    };
+    }));
   } catch (error) {
-    console.error("Error getting challenge by date: ", error);
+    console.error("Error getting challenges by date: ", error);
     throw error;
   }
+};
+
+// Backward compatibility for single challenge
+export const getChallengeByDate = async (date) => {
+  const challenges = await getChallengesByDate(date);
+  return challenges.length > 0 ? challenges[0] : null;
 };
 
 // Get all challenges
@@ -72,7 +78,8 @@ export const getAllChallenges = async () => {
 export const createChallenge = async (challengeData) => {
   try {
     const { prompt, date } = challengeData;
-    const challengeId = `challenge_${date.toISOString().split('T')[0]}`;
+    // Generate a unique ID with date and timestamp
+    const challengeId = `challenge_${date.toISOString().split('T')[0]}_${Date.now()}`;
     const challengeRef = doc(db, "challenges", challengeId);
     
     await setDoc(challengeRef, {
@@ -104,7 +111,6 @@ export const submitChallengeResponse = async (challengeId, responseText, respons
     }
     
     const challengeDoc = await getDoc(challengeRef);
-    const currentResponses = challengeDoc.data().responses || {};
     
     await updateDoc(challengeRef, {
       [`responses.${user.uid}`]: {
@@ -127,7 +133,14 @@ export const submitChallengeResponse = async (challengeId, responseText, respons
 export const uploadFile = async (file, path) => {
   try {
     const storageRef = ref(storage, path);
-    await uploadBytes(storageRef, file);
+    
+    // Add metadata with content type
+    const metadata = {
+      contentType: file.type
+    };
+    
+    // Upload with metadata
+    await uploadBytes(storageRef, file, metadata);
     const downloadURL = await getDownloadURL(storageRef);
     return downloadURL;
   } catch (error) {
