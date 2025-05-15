@@ -1,6 +1,6 @@
 // src/pages/Calendar.js
 import React, { useState, useEffect } from 'react';
-import { Box, Paper, Typography, Grid, IconButton, Container, Badge, Button, CircularProgress } from '@mui/material';
+import { Box, Paper, Typography, IconButton, Container, Button, CircularProgress } from '@mui/material';
 import { 
   format, 
   addDays, 
@@ -23,6 +23,7 @@ import EmojiEventsIcon from '@mui/icons-material/EmojiEvents';
 import ArrowBackIosNewIcon from '@mui/icons-material/ArrowBackIosNew';
 import ArrowForwardIosIcon from '@mui/icons-material/ArrowForwardIos';
 import { logOut } from '../services/authService';
+import { isUnlocked, getTodayInJapan, formatDateForDisplay } from '../utils/dateUtils';
 
 function Calendar() {
   const [messages, setMessages] = useState([]);
@@ -32,6 +33,7 @@ function Calendar() {
   const [tripStart] = useState(new Date(2025, 4, 13)); // May 13, 2025
   const [tripEnd] = useState(new Date(2025, 5, 27)); // June 27, 2025
   const navigate = useNavigate();
+  const todayInJapan = getTodayInJapan();
 
   useEffect(() => {
     const fetchData = async () => {
@@ -50,34 +52,30 @@ function Calendar() {
     fetchData();
   }, []);
 
-  const getMonthDays = () => {
-    const start = startOfMonth(currentMonth);
-    const end = endOfMonth(currentMonth);
-    return eachDayOfInterval({ start, end });
-  };
-
+  // Get all days that need to be displayed in the calendar
   const getCalendarDays = () => {
-    // Get all days in the current month
-    const monthDays = getMonthDays();
-    
-    // Get the start of the first week (Sunday)
-    const firstDayOfMonth = monthDays[0];
+    // Get the first day of the month
+    const firstDayOfMonth = startOfMonth(currentMonth);
+    // Get the start of the week for the first day (Sunday)
     const startDay = startOfWeek(firstDayOfMonth);
     
-    // Get the end of the last week (Saturday)
-    const lastDayOfMonth = monthDays[monthDays.length - 1];
+    // Get the last day of the month
+    const lastDayOfMonth = endOfMonth(currentMonth);
+    // Get the end of the week for the last day (Saturday)
     const endDay = endOfWeek(lastDayOfMonth);
     
     // Get all days from start to end
-    const allDays = eachDayOfInterval({ start: startDay, end: endDay });
-    
-    // Group days into weeks
+    return eachDayOfInterval({ start: startDay, end: endDay });
+  };
+
+  // Organize days into weeks for rendering
+  const getCalendarWeeks = () => {
+    const days = getCalendarDays();
     const weeks = [];
     let currentWeek = [];
     
-    allDays.forEach(day => {
+    days.forEach(day => {
       currentWeek.push(day);
-      
       if (currentWeek.length === 7) {
         weeks.push(currentWeek);
         currentWeek = [];
@@ -88,14 +86,10 @@ function Calendar() {
   };
 
   const handleDayClick = (day) => {
-    // Check if day is within trip dates and not in the future
-    const today = new Date();
-    today.setHours(0, 0, 0, 0);
-    
-    if ((isSameDay(day, today) || isBefore(day, today)) && 
+    // Check if day is within trip dates and is unlocked (using Japan's date as reference)
+    if (isUnlocked(day) && 
         (isSameDay(day, tripStart) || isAfter(day, tripStart)) && 
-        (isSameDay(day, tripEnd) || isBefore(day, tripEnd)) &&
-        isSameMonth(day, currentMonth)) {
+        (isSameDay(day, tripEnd) || isBefore(day, tripEnd))) {
       navigate(`/day/${format(day, 'yyyy-MM-dd')}`);
     }
   };
@@ -115,12 +109,6 @@ function Calendar() {
 
   const countChallengesForDay = (day) => {
     return challenges.filter(challenge => isSameDay(challenge.date, day)).length;
-  };
-
-  const isUnlocked = (day) => {
-    const today = new Date();
-    today.setHours(0, 0, 0, 0);
-    return isSameDay(day, today) || isBefore(day, today);
   };
 
   const isInTripRange = (day) => {
@@ -188,7 +176,8 @@ function Calendar() {
           <CircularProgress />
         </Box>
       ) : (
-        <Paper elevation={3} sx={{ p: 2, borderRadius: 2 }}>
+        <Paper elevation={3} sx={{ p: 2, pb: 3, borderRadius: 2 }}>
+          {/* Month navigation */}
           <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 2 }}>
             <IconButton onClick={handlePrevMonth} size="small">
               <ArrowBackIosNewIcon fontSize="small" />
@@ -201,102 +190,162 @@ function Calendar() {
             </IconButton>
           </Box>
           
-          {/* Day names row */}
-          <Grid container spacing={1} sx={{ mb: 1 }}>
-            {['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].map((dayName, index) => (
-              <Grid item xs={12/7} key={`day-${index}`} sx={{ textAlign: 'center' }}>
-                <Typography variant="body2" sx={{ fontWeight: 500 }}>
-                  {dayName}
-                </Typography>
-              </Grid>
-            ))}
-          </Grid>
-          
-          {/* Calendar grid with proper weeks */}
-          {getCalendarDays().map((week, weekIndex) => (
-            <Grid container spacing={1} key={`week-${weekIndex}`}>
-              {week.map((day) => (
-                <Grid item xs={12/7} key={day.toString()}>
-                  <Paper
-                    elevation={0}
-                    onClick={() => handleDayClick(day)}
-                    sx={{
-                      p: 1,
-                      height: '70px',
-                      display: 'flex',
-                      flexDirection: 'column',
-                      alignItems: 'center',
-                      justifyContent: 'center',
-                      cursor: isInTripRange(day) && isSameMonth(day, currentMonth) ? 'pointer' : 'default',
-                      backgroundColor: isInTripRange(day) && isSameMonth(day, currentMonth)
-                        ? (isSameDay(day, new Date()) ? '#ffb3c1' : '#fff0f3') 
-                        : '#f5f5f5',
-                      opacity: isInTripRange(day) && isSameMonth(day, currentMonth) ? 1 : 0.5,
-                      border: isSameDay(day, new Date()) ? '2px solid #ff4d6d' : 'none',
-                      borderRadius: 1
+          {/* Fixed table layout for calendar */}
+          <Box sx={{ width: '100%' }}>
+            <Box sx={{ 
+              display: 'table', 
+              width: '100%', 
+              borderCollapse: 'separate',
+              borderSpacing: '5px',
+              tableLayout: 'fixed'
+            }}>
+              {/* Day names header row */}
+              <Box sx={{ display: 'table-row' }}>
+                {['S', 'M', 'T', 'W', 'T', 'F', 'S'].map((day, i) => (
+                  <Box 
+                    key={`header-${i}`} 
+                    sx={{ 
+                      display: 'table-cell', 
+                      textAlign: 'center',
+                      fontWeight: 'bold',
+                      fontSize: '14px',
+                      py: 1
                     }}
                   >
-                    <Typography 
-                      variant="body2"
-                      sx={{ 
-                        color: isSameMonth(day, currentMonth) ? 'inherit' : '#aaa'
-                      }}
-                    >
-                      {format(day, 'd')}
-                    </Typography>
+                    {day}
+                  </Box>
+                ))}
+              </Box>
+              
+              {/* Calendar weeks */}
+              {getCalendarWeeks().map((week, weekIndex) => (
+                <Box key={`week-${weekIndex}`} sx={{ display: 'table-row' }}>
+                  {week.map((day) => {
+                    const isCurrentMonth = isSameMonth(day, currentMonth);
+                    const isToday = isSameDay(day, todayInJapan);
+                    const inTripRange = isInTripRange(day);
+                    const dayUnlocked = isUnlocked(day);
+                    const hasMsg = hasMessage(day);
+                    const hasChall = hasChallenge(day);
                     
-                    {isInTripRange(day) && isSameMonth(day, currentMonth) && (
-                      <Box sx={{ mt: 1, display: 'flex', gap: 0.5 }}>
-                        {hasMessage(day) && (
-                          <Badge 
-                            badgeContent={countMessagesForDay(day) > 1 ? countMessagesForDay(day) : 0} 
-                            color="primary"
+                    return (
+                      <Box 
+                        key={day.toString()}
+                        onClick={() => isCurrentMonth && inTripRange && dayUnlocked && handleDayClick(day)}
+                        sx={{
+                          display: 'table-cell',
+                          textAlign: 'center',
+                          verticalAlign: 'middle',
+                          position: 'relative',
+                          height: { xs: '40px', sm: '50px' },
+                          padding: '6px 0',
+                          cursor: isCurrentMonth && inTripRange && dayUnlocked ? 'pointer' : 'default',
+                          backgroundColor: !isCurrentMonth ? '#f5f5f5' : 
+                                          inTripRange ? (isToday ? '#ffb3c1' : '#fff0f3') : '#f5f5f5',
+                          opacity: isCurrentMonth && inTripRange ? 1 : 0.5,
+                          border: isToday ? '2px solid #ff4d6d' : '1px solid #eee',
+                          borderRadius: 1,
+                          transition: 'all 0.2s ease',
+                          '&:hover': isCurrentMonth && inTripRange && dayUnlocked ? {
+                            backgroundColor: '#ffc8dd'
+                          } : {},
+                        }}
+                      >
+                        {/* Day number */}
+                        <Typography 
+                          variant="body2"
+                          sx={{ 
+                            fontWeight: isToday ? 'bold' : 'normal',
+                            fontSize: '14px',
+                            lineHeight: 1,
+                            mb: 0.5
+                          }}
+                        >
+                          {format(day, 'd')}
+                        </Typography>
+                        
+                        {/* Icons container with fixed height */}
+                        {isCurrentMonth && inTripRange && (
+                          <Box 
                             sx={{ 
-                              '& .MuiBadge-badge': { 
-                                backgroundColor: '#ff4d6d',
-                                fontSize: '0.7rem',
-                                minWidth: '16px',
-                                height: '16px',
-                                padding: '0 4px'
-                              }
+                              height: '18px', 
+                              display: 'flex', 
+                              justifyContent: 'center',
+                              alignItems: 'center',
+                              gap: '4px'
                             }}
                           >
-                            <FavoriteIcon 
-                              fontSize="small" 
-                              sx={{ color: isUnlocked(day) ? '#ff4d6d' : '#a4a4a4' }} 
-                            />
-                          </Badge>
-                        )}
-                        {hasChallenge(day) && (
-                          <Badge 
-                            badgeContent={countChallengesForDay(day) > 1 ? countChallengesForDay(day) : 0} 
-                            color="primary"
-                            sx={{ 
-                              '& .MuiBadge-badge': { 
-                                backgroundColor: '#ff9e6d',
-                                fontSize: '0.7rem',
-                                minWidth: '16px',
-                                height: '16px',
-                                padding: '0 4px'
-                              }
-                            }}
-                          >
-                            <EmojiEventsIcon 
-                              fontSize="small" 
-                              sx={{ color: isUnlocked(day) ? '#ff9e6d' : '#a4a4a4' }} 
-                            />
-                          </Badge>
-                        )}
-                        {!isUnlocked(day) && (
-                          <LockIcon fontSize="small" sx={{ color: '#a4a4a4' }} />
+                            {hasMsg && (
+                              <Box sx={{ display: 'flex', alignItems: 'center', position: 'relative' }}>
+                                <FavoriteIcon 
+                                  sx={{ 
+                                    fontSize: '16px',
+                                    color: dayUnlocked ? '#ff4d6d' : '#a4a4a4' 
+                                  }} 
+                                />
+                                {countMessagesForDay(day) > 1 && (
+                                  <Box sx={{ 
+                                    position: 'absolute',
+                                    top: '-8px',
+                                    right: '-8px',
+                                    backgroundColor: '#ff4d6d',
+                                    color: 'white',
+                                    borderRadius: '50%',
+                                    width: '14px',
+                                    height: '14px',
+                                    fontSize: '10px',
+                                    lineHeight: 1.4,
+                                    fontWeight: 'bold'
+                                  }}>
+                                    {countMessagesForDay(day)}
+                                  </Box>
+                                )}
+                              </Box>
+                            )}
+                            {hasChall && (
+                              <Box sx={{ display: 'flex', alignItems: 'center', position: 'relative' }}>
+                                <EmojiEventsIcon 
+                                  sx={{ 
+                                    fontSize: '16px',
+                                    color: dayUnlocked ? '#ff9e6d' : '#a4a4a4' 
+                                  }} 
+                                />
+                                {countChallengesForDay(day) > 1 && (
+                                  <Box sx={{ 
+                                    position: 'absolute',
+                                    top: '-8px',
+                                    right: '-8px',
+                                    backgroundColor: '#ff9e6d',
+                                    color: 'white',
+                                    borderRadius: '50%',
+                                    width: '14px',
+                                    height: '14px',
+                                    fontSize: '10px',
+                                    lineHeight: 1.4,
+                                    fontWeight: 'bold'
+                                  }}>
+                                    {countChallengesForDay(day)}
+                                  </Box>
+                                )}
+                              </Box>
+                            )}
+                            {!dayUnlocked && (
+                              <LockIcon 
+                                sx={{ 
+                                  fontSize: '16px',
+                                  color: '#a4a4a4' 
+                                }} 
+                              />
+                            )}
+                          </Box>
                         )}
                       </Box>
-                    )}
-                  </Paper>
-                </Grid>
+                    );
+                  })}
+                </Box>
               ))}
-            </Grid>
-          ))}
+            </Box>
+          </Box>
         </Paper>
       )}
 

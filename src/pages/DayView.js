@@ -20,8 +20,9 @@ import ArrowBackIcon from '@mui/icons-material/ArrowBack';
 import FavoriteIcon from '@mui/icons-material/Favorite';
 import EmojiEventsIcon from '@mui/icons-material/EmojiEvents';
 import UploadFileIcon from '@mui/icons-material/UploadFile';
-import { getMessagesByDate } from '../services/messageService';
+import { getMessagesByDate, markMessageAsViewed } from '../services/messageService';
 import { getChallengesByDate, submitChallengeResponse } from '../services/challengeService';
+import { isUnlocked, formatDateForDisplay } from '../utils/dateUtils';
 
 function DayView() {
   const { date } = useParams();
@@ -35,15 +36,22 @@ function DayView() {
   const [submitted, setSubmitted] = useState(false);
   const [previewUrl, setPreviewUrl] = useState('');
   const [activeChallenge, setActiveChallenge] = useState(null);
+  const [markedAsViewed, setMarkedAsViewed] = useState([]);
   
-  const formattedDate = date ? format(parseISO(date), 'MMMM d, yyyy') : '';
+  const formattedDate = date ? formatDateForDisplay(parseISO(date)) : '';
+  const parsedDate = date ? parseISO(date) : null;
 
   useEffect(() => {
     const fetchData = async () => {
       try {
         if (!date) return;
         
-        const parsedDate = parseISO(date);
+        // Check if the requested day is unlocked
+        if (parsedDate && !isUnlocked(parsedDate)) {
+          navigate('/calendar');
+          return;
+        }
+        
         const [fetchedMessages, fetchedChallenges] = await Promise.all([
           getMessagesByDate(parsedDate),
           getChallengesByDate(parsedDate)
@@ -72,7 +80,36 @@ function DayView() {
     };
 
     fetchData();
-  }, [date]);
+  }, [date, navigate, parsedDate]);
+
+  // Track message views - FIXED to prevent duplicates
+  useEffect(() => {
+    const trackMessageViews = async () => {
+      if (messages.length === 0 || loading) return;
+      
+      // Get message IDs we haven't tracked yet
+      const unviewedMessages = messages.filter(
+        message => !markedAsViewed.includes(message.id)
+      );
+      
+      if (unviewedMessages.length === 0) return;
+      
+      // Track each unviewed message
+      const newlyViewedIds = [];
+      for (const message of unviewedMessages) {
+        await markMessageAsViewed(message.id);
+        newlyViewedIds.push(message.id);
+      }
+      
+      // Update marked as viewed state once
+      if (newlyViewedIds.length > 0) {
+        setMarkedAsViewed(prev => [...prev, ...newlyViewedIds]);
+      }
+    };
+    
+    trackMessageViews();
+    // Only run when messages or loading state changes, not when markedAsViewed changes
+  }, [messages, loading]);
 
   const handleFileChange = (event) => {
     const file = event.target.files[0];
@@ -100,7 +137,7 @@ function DayView() {
       setPreviewUrl('');
       
       // Refresh challenge data to show the response
-      const refreshedChallenges = await getChallengesByDate(parseISO(date));
+      const refreshedChallenges = await getChallengesByDate(parsedDate);
       setChallenges(refreshedChallenges);
     } catch (error) {
       console.error("Error submitting response:", error);
@@ -171,7 +208,6 @@ function DayView() {
 
   const getChallengeResponses = (challenge) => {
     if (!challenge || !challenge.responses) return null;
-    
     const responses = Object.values(challenge.responses);
     if (responses.length === 0) return null;
     

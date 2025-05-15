@@ -8,10 +8,13 @@ import {
   where, 
   orderBy,
   setDoc,
+  updateDoc,
+  arrayUnion,
   Timestamp 
 } from "firebase/firestore";
 import { ref, uploadBytes, getDownloadURL } from "firebase/storage";
 import { db, storage } from "../config/firebase";
+import { getCurrentUser } from './authService';
 
 // Get all messages
 export const getAllMessages = async () => {
@@ -105,6 +108,7 @@ export const createMessage = async (messageData, files = {}) => {
       date: Timestamp.fromDate(date),
       type,
       mediaUrl,
+      views: [],
       createdAt: Timestamp.now()
     });
     
@@ -112,5 +116,53 @@ export const createMessage = async (messageData, files = {}) => {
   } catch (error) {
     console.error("Error creating message: ", error);
     throw error;
+  }
+};
+
+// Mark a message as viewed - with duplicate prevention
+export const markMessageAsViewed = async (messageId) => {
+  try {
+    const user = getCurrentUser();
+    if (!user) return;
+    
+    const messageRef = doc(db, "messages", messageId);
+    
+    // First check if this message exists
+    const messageDoc = await getDoc(messageRef);
+    if (!messageDoc.exists()) {
+      console.warn("Message not found:", messageId);
+      return false;
+    }
+    
+    // Check if this user has already viewed this message recently
+    const messageData = messageDoc.data();
+    const now = new Date();
+    const oneMinuteAgo = new Date(now.getTime() - 60000); // 1 minute ago
+    
+    const recentViewByUser = messageData.views && messageData.views.some(view => {
+      // If user has already viewed and it was less than a minute ago
+      return view.userId === user.uid && 
+             new Date(view.timestamp) > oneMinuteAgo;
+    });
+    
+    // If user already viewed recently, don't record again
+    if (recentViewByUser) {
+      return true;
+    }
+    
+    // Record the view
+    await updateDoc(messageRef, {
+      views: arrayUnion({
+        userId: user.uid,
+        displayName: user.displayName,
+        email: user.email,
+        timestamp: now.toISOString()
+      })
+    });
+    
+    return true;
+  } catch (error) {
+    console.error("Error marking message as viewed:", error);
+    return false;
   }
 };
