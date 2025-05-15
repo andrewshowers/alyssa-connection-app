@@ -8,9 +8,9 @@ import {
   where, 
   orderBy,
   setDoc,
-  Timestamp,
   updateDoc,
-  arrayUnion 
+  arrayUnion,
+  Timestamp 
 } from "firebase/firestore";
 import { ref, uploadBytes, getDownloadURL } from "firebase/storage";
 import { db, storage } from "../config/firebase";
@@ -108,6 +108,7 @@ export const createMessage = async (messageData, files = {}) => {
       date: Timestamp.fromDate(date),
       type,
       mediaUrl,
+      views: [],
       createdAt: Timestamp.now()
     });
     
@@ -118,6 +119,7 @@ export const createMessage = async (messageData, files = {}) => {
   }
 };
 
+// Mark a message as viewed - with duplicate prevention
 export const markMessageAsViewed = async (messageId) => {
   try {
     const user = getCurrentUser();
@@ -132,8 +134,7 @@ export const markMessageAsViewed = async (messageId) => {
       return false;
     }
     
-    // Check if this user has already viewed this message in the last minute
-    // to prevent duplicate recordings
+    // Check if this user has already viewed this message recently
     const messageData = messageDoc.data();
     const now = new Date();
     const oneMinuteAgo = new Date(now.getTime() - 60000); // 1 minute ago

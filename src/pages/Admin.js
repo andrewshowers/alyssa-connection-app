@@ -34,8 +34,11 @@ import { format, addDays, isAfter, isBefore } from 'date-fns';
 import ArrowBackIcon from '@mui/icons-material/ArrowBack';
 import DeleteIcon from '@mui/icons-material/Delete';
 import ExpandMoreIcon from '@mui/icons-material/ExpandMore';
+import CleaningServicesIcon from '@mui/icons-material/CleaningServices';
 import { createMessage, getAllMessages } from '../services/messageService';
 import { createChallenge, getAllChallenges } from '../services/challengeService';
+import { doc, updateDoc } from 'firebase/firestore';
+import { db } from '../config/firebase';
 import { useNavigate } from 'react-router-dom';
 
 function Admin() {
@@ -187,7 +190,7 @@ function Admin() {
     
     // Auto hide after 5 seconds
     setTimeout(() => {
-      setNotification({ ...notification, show: false });
+      setNotification(prev => ({ ...prev, show: false }));
     }, 5000);
   };
 
@@ -210,6 +213,57 @@ function Admin() {
     );
   };
 
+  // Function to clean up duplicate views
+  const cleanupDuplicateViews = async () => {
+    if (!window.confirm("This will clean up duplicate view records. Continue?")) {
+      return;
+    }
+    
+    setLoading(true);
+    try {
+      for (const message of messages) {
+        if (!message.views || message.views.length <= 1) continue;
+        
+        // Group views by user
+        const viewsByUser = {};
+        message.views.forEach(view => {
+          const userId = view.userId;
+          if (!viewsByUser[userId]) {
+            viewsByUser[userId] = [];
+          }
+          viewsByUser[userId].push(view);
+        });
+        
+        // For each user, keep only the most recent view
+        const uniqueViews = [];
+        for (const userId in viewsByUser) {
+          const userViews = viewsByUser[userId];
+          // Sort by timestamp descending (most recent first)
+          userViews.sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp));
+          // Keep only the most recent view
+          uniqueViews.push(userViews[0]);
+        }
+        
+        // Update the message with deduplicated views
+        const messageRef = doc(db, "messages", message.id);
+        await updateDoc(messageRef, {
+          views: uniqueViews
+        });
+      }
+      
+      // Refresh messages
+      const refreshedMessages = await getAllMessages();
+      setMessages(refreshedMessages);
+      
+      showNotification("Duplicate views cleaned up successfully", "success");
+    } catch (error) {
+      console.error("Error cleaning up duplicates:", error);
+      showNotification("Failed to clean up duplicates", "error");
+    } finally {
+      setLoading(false);
+    }
+  };
+
   return (
     <LocalizationProvider dateAdapter={AdapterDateFns}>
       <Container maxWidth="md" sx={{ py: 4 }}>
@@ -226,7 +280,7 @@ function Admin() {
           <Alert 
             severity={notification.severity} 
             sx={{ mb: 3 }}
-            onClose={() => setNotification({ ...notification, show: false })}
+            onClose={() => setNotification(prev => ({ ...prev, show: false }))}
           >
             {notification.message}
           </Alert>
@@ -483,7 +537,7 @@ function Admin() {
                                             primary={response.displayName} 
                                             secondary={`Responded: ${new Date(response.timestamp.toDate()).toLocaleString()}`} 
                                           />
-					</ListItem>
+                                        </ListItem>
                                       ))}
                                     </List>
                                   </AccordionDetails>
@@ -503,78 +557,105 @@ function Admin() {
 
         {activeTab === 'tracking' && (
           <Paper elevation={3} sx={{ p: 3, borderRadius: 2 }}>
-            <Typography variant="h5" component="h2" sx={{ mb: 3 }}>
-              Message Views
-            </Typography>
-            
-            {messages.length === 0 ? (
-              <Typography color="text.secondary">
-                No messages created yet
+            <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 3 }}>
+              <Typography variant="h5" component="h2">
+                Message Views
               </Typography>
+              <Button 
+                variant="outlined" 
+                color="primary"
+                startIcon={<CleaningServicesIcon />}
+                onClick={cleanupDuplicateViews}
+                disabled={loading}
+              >
+                Clean Up Duplicate Views
+              </Button>
+            </Box>
+            
+            {loading ? (
+              <Box sx={{ display: 'flex', justifyContent: 'center', py: 4 }}>
+                <CircularProgress />
+              </Box>
             ) : (
-              messages.map((msg) => (
-                <Accordion key={msg.id} sx={{ mb: 2 }}>
-                  <AccordionSummary expandIcon={<ExpandMoreIcon />}>
-                    <Typography>
-                      {format(msg.date, 'MMMM d, yyyy')} - {msg.text.substring(0, 50)}
-                      {msg.text.length > 50 ? '...' : ''}
-                      {msg.views && msg.views.length > 0 && (
-                        <span style={{ marginLeft: 10, color: 'green' }}>
-                          ✓ Viewed {msg.views.length} time(s)
-                        </span>
-                      )}
-                    </Typography>
-                  </AccordionSummary>
-                  <AccordionDetails>
-                    {renderViewsForMessage(msg)}
-                  </AccordionDetails>
-                </Accordion>
-              ))
+              <>
+                {messages.length === 0 ? (
+                  <Typography color="text.secondary">
+                    No messages created yet
+                  </Typography>
+                ) : (
+                  messages.map((msg) => (
+                    <Accordion key={msg.id} sx={{ mb: 2 }}>
+                      <AccordionSummary expandIcon={<ExpandMoreIcon />}>
+                        <Typography>
+                          {format(msg.date, 'MMMM d, yyyy')} - {msg.text.substring(0, 50)}
+                          {msg.text.length > 50 ? '...' : ''}
+                          {msg.views && msg.views.length > 0 && (
+                            <span style={{ marginLeft: 10, color: 'green' }}>
+                              ✓ Viewed {msg.views.length} time(s)
+                            </span>
+                          )}
+                        </Typography>
+                      </AccordionSummary>
+                      <AccordionDetails>
+                        {renderViewsForMessage(msg)}
+                      </AccordionDetails>
+                    </Accordion>
+                  ))
+                )}
+              </>
             )}
             
             <Typography variant="h5" component="h2" sx={{ mt: 4, mb: 3 }}>
               Challenge Responses
             </Typography>
             
-            {challenges.length === 0 ? (
-              <Typography color="text.secondary">
-                No challenges created yet
-              </Typography>
+            {loading ? (
+              <Box sx={{ display: 'flex', justifyContent: 'center', py: 4 }}>
+                <CircularProgress />
+              </Box>
             ) : (
-              challenges.map((challenge) => {
-                const hasResponses = challenge.responses && Object.keys(challenge.responses).length > 0;
-                return (
-                  <Accordion key={challenge.id} sx={{ mb: 2 }}>
-                    <AccordionSummary expandIcon={<ExpandMoreIcon />}>
-                      <Typography>
-                        {format(challenge.date, 'MMMM d, yyyy')} - {challenge.prompt.substring(0, 50)}
-                        {challenge.prompt.length > 50 ? '...' : ''}
-                        {hasResponses && (
-                          <span style={{ marginLeft: 10, color: 'green' }}>
-                            ✓ {Object.keys(challenge.responses).length} Response(s)
-                          </span>
-                        )}
-                      </Typography>
-                    </AccordionSummary>
-                    <AccordionDetails>
-                      {hasResponses ? (
-                        <List dense>
-                          {Object.values(challenge.responses).map((response, idx) => (
-                            <ListItem key={idx}>
-                              <ListItemText 
-                                primary={response.displayName} 
-                                secondary={`Responded: ${new Date(response.timestamp.toDate()).toLocaleString()}`} 
-                              />
-                            </ListItem>
-                          ))}
-                        </List>
-                      ) : (
-                        <Typography color="text.secondary">No responses yet</Typography>
-                      )}
-                    </AccordionDetails>
-                  </Accordion>
-                );
-              })
+              <>
+                {challenges.length === 0 ? (
+                  <Typography color="text.secondary">
+                    No challenges created yet
+                  </Typography>
+                ) : (
+                  challenges.map((challenge) => {
+                    const hasResponses = challenge.responses && Object.keys(challenge.responses).length > 0;
+                    return (
+                      <Accordion key={challenge.id} sx={{ mb: 2 }}>
+                        <AccordionSummary expandIcon={<ExpandMoreIcon />}>
+                          <Typography>
+                            {format(challenge.date, 'MMMM d, yyyy')} - {challenge.prompt.substring(0, 50)}
+                            {challenge.prompt.length > 50 ? '...' : ''}
+                            {hasResponses && (
+                              <span style={{ marginLeft: 10, color: 'green' }}>
+                                ✓ {Object.keys(challenge.responses).length} Response(s)
+                              </span>
+                            )}
+                          </Typography>
+                        </AccordionSummary>
+                        <AccordionDetails>
+                          {hasResponses ? (
+                            <List dense>
+                              {Object.values(challenge.responses).map((response, idx) => (
+                                <ListItem key={idx}>
+                                  <ListItemText 
+                                    primary={response.displayName} 
+                                    secondary={`Responded: ${new Date(response.timestamp.toDate()).toLocaleString()}`} 
+                                  />
+                                </ListItem>
+                              ))}
+                            </List>
+                          ) : (
+                            <Typography color="text.secondary">No responses yet</Typography>
+                          )}
+                        </AccordionDetails>
+                      </Accordion>
+                    );
+                  })
+                )}
+              </>
             )}
           </Paper>
         )}
@@ -582,54 +663,5 @@ function Admin() {
     </LocalizationProvider>
   );
 }
-
-// Add this to Admin.js
-const cleanupDuplicateViews = async () => {
-  if (!window.confirm("This will clean up duplicate view records. Continue?")) {
-    return;
-  }
-  
-  setLoading(true);
-  try {
-    for (const message of messages) {
-      if (!message.views || message.views.length <= 1) continue;
-      
-      // Create a map of unique views by user
-      const uniqueViews = {};
-      message.views.forEach(view => {
-        const key = `${view.userId}_${view.displayName}`;
-        if (!uniqueViews[key] || new Date(view.timestamp) > new Date(uniqueViews[key].timestamp)) {
-          uniqueViews[key] = view;
-        }
-      });
-      
-      // Update with deduplicated views
-      const messageRef = doc(db, "messages", message.id);
-      await updateDoc(messageRef, {
-        views: Object.values(uniqueViews)
-      });
-    }
-    
-    // Refresh data
-    const refreshedMessages = await getAllMessages();
-    setMessages(refreshedMessages);
-    
-    showNotification("Duplicate views cleaned up successfully", "success");
-  } catch (error) {
-    console.error("Error cleaning up duplicates:", error);
-    showNotification("Failed to clean up duplicates", "error");
-  } finally {
-    setLoading(false);
-  }
-};
-
-// Then add a button in the tracking tab
-<Button 
-  variant="outlined" 
-  onClick={cleanupDuplicateViews}
-  sx={{ mt: 2 }}
->
-  Clean Up Duplicate Views
-</Button>
 
 export default Admin;

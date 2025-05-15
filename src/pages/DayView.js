@@ -41,7 +41,48 @@ function DayView() {
   const formattedDate = date ? formatDateForDisplay(parseISO(date)) : '';
   const parsedDate = date ? parseISO(date) : null;
 
-  // Updated useEffect in DayView.js
+  useEffect(() => {
+    const fetchData = async () => {
+      try {
+        if (!date) return;
+        
+        // Check if the requested day is unlocked
+        if (parsedDate && !isUnlocked(parsedDate)) {
+          navigate('/calendar');
+          return;
+        }
+        
+        const [fetchedMessages, fetchedChallenges] = await Promise.all([
+          getMessagesByDate(parsedDate),
+          getChallengesByDate(parsedDate)
+        ]);
+        
+        setMessages(fetchedMessages);
+        setChallenges(fetchedChallenges);
+        
+        // If there are challenges, set the first one as active
+        if (fetchedChallenges.length > 0) {
+          setActiveChallenge(fetchedChallenges[0].id);
+        }
+        
+        // Check if user has already submitted responses to any challenges
+        if (fetchedChallenges.length > 0) {
+          const anyResponses = fetchedChallenges.some(challenge => 
+            challenge.responses && Object.values(challenge.responses).length > 0
+          );
+          setSubmitted(anyResponses);
+        }
+      } catch (error) {
+        console.error("Error fetching day data:", error);
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    fetchData();
+  }, [date, navigate, parsedDate]);
+
+  // Track message views - FIXED to prevent duplicates
   useEffect(() => {
     const trackMessageViews = async () => {
       if (messages.length === 0 || loading) return;
@@ -69,23 +110,6 @@ function DayView() {
     trackMessageViews();
     // Only run when messages or loading state changes, not when markedAsViewed changes
   }, [messages, loading]);
-
-  // Track message views
-  useEffect(() => {
-    const trackMessageViews = async () => {
-      if (messages.length === 0 || loading) return;
-      
-      // Mark each message as viewed
-      for (const message of messages) {
-        if (!markedAsViewed.includes(message.id)) {
-          await markMessageAsViewed(message.id);
-          setMarkedAsViewed(prev => [...prev, message.id]);
-        }
-      }
-    };
-    
-    trackMessageViews();
-  }, [messages, loading, markedAsViewed]);
 
   const handleFileChange = (event) => {
     const file = event.target.files[0];
@@ -184,7 +208,6 @@ function DayView() {
 
   const getChallengeResponses = (challenge) => {
     if (!challenge || !challenge.responses) return null;
-    
     const responses = Object.values(challenge.responses);
     if (responses.length === 0) return null;
     
